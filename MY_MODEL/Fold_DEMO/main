@@ -1,0 +1,40 @@
+import tensorflow as tf
+import tensorflow_fold as td
+import random
+
+sess = tf.InteractiveSession()
+
+
+def reduce_net_block():
+    net_block = td.Concat() >> td.FC(10) >> td.FC(1, activation=None) >> td.Function(lambda xs: tf.squeeze(xs, axis=1))
+    return td.Map(td.Scalar()) >> td.Reduce(net_block)
+
+
+def random_example(fn):
+    length = random.randrange(1, 10)
+    data = [random.uniform(0, 1) for _ in range(length)]
+    label = fn(data)
+    return data, label
+
+
+def train(fn, batch_size=100):
+    model = reduce_net_block()
+    compiler = td.Compiler.create((model, td.Scalar()))
+    y, y_ = compiler.output_tensors
+    loss = tf.nn.l2_loss(y - y_)
+    tf.summary.scalar('loss', loss)
+    train_op = tf.train.AdamOptimizer().minimize(loss)
+
+    merged = tf.summary.merge_all()
+    writer = tf.summary.FileWriter('logs', sess.graph)
+
+    sess.run(tf.global_variables_initializer())
+    validation_fd = compiler.build_feed_dict(random_example(sum) for _ in range(1000))
+    for i in range(2000):
+        summary, _ = sess.run([merged, train_op], compiler.build_feed_dict(random_example(sum) for _ in range(batch_size)))
+        writer.add_summary(summary, i)
+        if i % 50 == 0:
+            print(i, sess.run(loss, validation_fd))
+    return model
+
+sum_block = train(sum)
